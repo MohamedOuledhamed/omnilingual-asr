@@ -693,3 +693,7 @@ class ASRInferencePipeline:
         combined_builder = combined_builder.map(self._apply_model)
         combined_builder = combined_builder.yield_from(
             lambda seq: read_sequence(seq).and_return()
+        )
+
+
+

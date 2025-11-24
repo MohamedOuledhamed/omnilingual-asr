@@ -8,11 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Final, List, Tuple, Optional, Union
+from typing import Any, Dict, Final, List, Tuple, cast
 
 import numpy as np
 import torch
-import torchaudio
 import torchaudio.functional as F
 from fairseq2.data._memory import MemoryBlock
 from fairseq2.data.audio import AudioDecoder
@@ -34,6 +33,11 @@ from fairseq2.nn.batch_layout import BatchLayout
 from numpy.typing import NDArray
 
 from omnilingual_asr.datasets.utils.audio import add_waveform_processing
+from omnilingual_asr.models.inference.align import (
+    align_ctc,
+    align_llm,
+    chunk_waveform,
+)
 from omnilingual_asr.models.wav2vec2_llama.beamsearch import (
     Wav2Vec2LlamaBeamSearchSeq2SeqGenerator,
 )
@@ -41,11 +45,6 @@ from omnilingual_asr.models.wav2vec2_llama.config import ModelType
 from omnilingual_asr.models.wav2vec2_llama.model import (
     Wav2Vec2LlamaBeamSearchConfig,
     Wav2Vec2LlamaModel,
-)
-from omnilingual_asr.models.inference.align import (
-    align_ctc, 
-    align_llm, 
-    chunk_waveform
 )
 
 log = get_log_writer(__name__)
@@ -434,7 +433,9 @@ class ASRInferencePipeline:
             return None
 
         # Use the same audio processing pipeline as main inference
-        builder = self._build_audio_wavform_pipeline([example.audio for example in context_examples])  # type: ignore[arg-type]
+        # Cast mixed list to AudioInput to satisfy type checker
+        raw_audio = cast(AudioInput, [example.audio for example in context_examples])
+        builder = self._build_audio_wavform_pipeline(raw_audio)
         context_audio_tensors = list(builder.and_return())
 
         collated_audio = self.collater_audio(context_audio_tensors)
@@ -515,7 +516,7 @@ class ASRInferencePipeline:
         """
         Transcribes `AudioInput` into text by preprocessing (decoding, resample to 16kHz, converting to mono, normalizing)
         each input sample and performing inference with `self.model`.
-        
+
         Returns text and extracted timestamps.
 
         Works for both CTC and LLM model variants by optionally allowing a language conditioning token to help with LLM generation.
@@ -533,7 +534,7 @@ class ASRInferencePipeline:
             `chunk_len`: Maximum length in seconds for processing. Longer files will be split.
 
         Returns:
-            Tuple[List[str], List[List[Dict[str, Any]]]]: 
+            Tuple[List[str], List[List[Dict[str, Any]]]]:
                 - List of transcribed texts.
                 - List of List of timestamp dicts (e.g. [{'word': 'Hello', 'start': 0.0, 'end': 0.5}])
         """
@@ -570,7 +571,7 @@ class ASRInferencePipeline:
             waveform = next(iter(p)) # Tensor[T]
 
             duration = waveform.shape[0] / 16000.0
-            
+
             if chunk_len is not None and duration > chunk_len:
                 chunks = chunk_waveform(waveform, 16000, chunk_len)
             else:
@@ -583,20 +584,20 @@ class ASRInferencePipeline:
 
             chunk_waveforms = [c[0] for c in chunks]
             offsets = [c[1] for c in chunks]
-            
+
             # Process chunks in batches
             for i in range(0, len(chunk_waveforms), batch_size):
                 batch_wavs = chunk_waveforms[i : i + batch_size]
                 batch_offsets = offsets[i : i + batch_size]
-                
+
                 batch_data = [(w, input_lang) for w in batch_wavs]
                 seq2seq_batch = self._create_batch_simple(batch_data)
                 texts = self._apply_model(seq2seq_batch)
-                
+
                 for j, text in enumerate(texts):
                     wav_segment = batch_wavs[j]
                     offset = batch_offsets[j]
-                    
+
                     if not text.strip():
                         input_text_parts.append("")
                         continue
@@ -610,12 +611,12 @@ class ASRInferencePipeline:
                     except Exception as e:
                         log.warning(f"Alignment failed for chunk {i+j} of input {idx}: {e}")
                         chunk_ts = []
-                    
+
                     for w in chunk_ts:
                         w["start"] += offset
                         w["end"] += offset
                         input_timestamps.append(w)
-                    
+
                     input_text_parts.append(text)
 
             full_transcript = " ".join(t for t in input_text_parts if t.strip())
@@ -694,6 +695,4 @@ class ASRInferencePipeline:
         combined_builder = combined_builder.yield_from(
             lambda seq: read_sequence(seq).and_return()
         )
-
-
-
+        return list(combined_builder.and_return())

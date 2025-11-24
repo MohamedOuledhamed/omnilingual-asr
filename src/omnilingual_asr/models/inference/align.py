@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 import types
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
 import numpy as np
 import torch
@@ -18,6 +18,7 @@ from torch import Tensor
 
 try:
     from omnilingual_asr.models.inference.pipeline import ASRInferencePipeline
+    from omnilingual_asr.models.wav2vec2_llama.model import Wav2Vec2LlamaModel
 except ImportError:
     pass  # Type checking only
 
@@ -93,7 +94,7 @@ def _ensure_tensor(maybe_ret: Any) -> Tensor:
 
 def get_ctc_logits(asr_model: Any, waveform: Tensor, sample_rate: int) -> Tuple[Tensor, float]:
     device = next(asr_model.parameters()).device
-    
+
     if hasattr(asr_model, "encoder_frontend"):
         frontend = asr_model.encoder_frontend
     elif hasattr(asr_model, "frontend"):
@@ -110,13 +111,13 @@ def get_ctc_logits(asr_model: Any, waveform: Tensor, sample_rate: int) -> Tuple[
         wav = waveform.to(device=device, dtype=f_dtype)
         x = wav.unsqueeze(0)
         seqs_layout = _make_seqs_layout(x, [wav.shape[0]])
-        
+
         ret = frontend.extract_features(x, seqs_layout)
         if isinstance(ret, (tuple, list)):
             feats, layout = ret[0], ret[1]
         else:
             feats, layout = ret, seqs_layout
-            
+
         try:
             feats = _ensure_tensor(frontend.process_features(feats, layout, None))
         except Exception:
@@ -139,7 +140,7 @@ def get_ctc_logits(asr_model: Any, waveform: Tensor, sample_rate: int) -> Tuple[
 
         logits = proj(enc)
         logits = logits.squeeze(0)
-        
+
         s_frames = feats.shape[1]
         t_samples = waveform.shape[0]
         stride_samples = max(1, round(t_samples / s_frames))
@@ -162,7 +163,7 @@ def align_ctc(
 
     # 1. Get Logits & Boundaries
     logits, stride_seconds = get_ctc_logits(model, waveform, sample_rate)
-    
+
     path = torch.argmax(logits, dim=-1).tolist()
     boundaries = [0]
     prev_token = -1
@@ -177,7 +178,7 @@ def align_ctc(
     # 2. Detect Mode & Split
     mode = detect_alignment_mode(transcript)
     units = split_text_units(transcript, mode)
-    
+
     if not boundaries or len(boundaries) < 2 or not units:
         return []
 
@@ -185,26 +186,26 @@ def align_ctc(
     num_frames = len(boundaries) - 1
     U = len(units)
     results: List[dict] = []
-    
+
     # Key name based on mode
     key_name = "word" if mode == "word" else "char"
 
     for u_idx, (tok, _s, _e) in enumerate(units):
         start_bin = int(round((u_idx) * num_frames / U))
         end_bin = int(round((u_idx + 1) * num_frames / U))
-        
+
         start_bin = min(max(start_bin, 0), num_frames)
         end_bin = min(max(end_bin, start_bin + 1), num_frames)
-        
+
         start_frame = boundaries[start_bin]
         end_frame = boundaries[end_bin]
-        
+
         results.append({
             key_name: tok,
             "start": start_frame * stride_seconds,
             "end": end_frame * stride_seconds
         })
-        
+
     return results
 
 
@@ -214,7 +215,7 @@ def align_ctc(
 
 class AttentionStore:
     def __init__(self) -> None:
-        self.weights = {}
+        self.weights: Dict[int, torch.Tensor] = {}
 
     def add_weights(self, layer_idx: int, attn: torch.Tensor) -> None:
         self.weights[layer_idx] = attn.detach().cpu()
@@ -262,7 +263,7 @@ def forced_alignment_dtw(similarity_matrix: np.ndarray) -> List[int]:
 
     path = []
     i, j = N_text, int(np.argmax(score[N_text, :]))
-    
+
     while i > 0 and j > 0:
         path.append((i-1, j-1))
         s_diag = score[i-1, j-1]
@@ -271,12 +272,12 @@ def forced_alignment_dtw(similarity_matrix: np.ndarray) -> List[int]:
             i, j = i - 1, j - 1
         else:
             j -= 1
-            
+
     path = path[::-1]
-    token_frames = [[] for _ in range(N_text)]
+    token_frames: List[List[int]] = [[] for _ in range(N_text)]
     for t_idx, f_idx in path:
         token_frames[t_idx].append(f_idx)
-        
+
     aligned_frames = []
     last_frame = 0
     for tf in token_frames:
@@ -286,7 +287,7 @@ def forced_alignment_dtw(similarity_matrix: np.ndarray) -> List[int]:
             last_frame = avg
         else:
             aligned_frames.append(last_frame)
-            
+
     return aligned_frames
 
 
@@ -297,43 +298,46 @@ def align_llm(
     transcript: str,
     lang: Optional[str] = None
 ) -> List[dict]:
-    
+
     if not transcript.strip():
         return []
-        
+
+    # Narrow type for MyPy
+    model = cast(Wav2Vec2LlamaModel, pipeline.model)
+
     lang = lang if lang else "eng_Latn"
-    
+
     # 1. Prepare Inputs
     try:
         if waveform.ndim > 1:
              waveform = waveform.mean(dim=0)
-        
+
         audio_data = [{"waveform": waveform, "sample_rate": 16000}]
         audio_candidate = next(iter(pipeline._build_audio_wavform_pipeline(audio_data).and_return()))
         audio_batch = pipeline._create_batch_simple([(audio_candidate, lang)])
-        
-        audio_features, _ = pipeline.model.embed_audio(
+
+        audio_features, _ = model.embed_audio(
             audio_batch.source_seqs.to(dtype=pipeline.dtype),
             audio_batch.source_seq_lens,
         )
 
         token_ids = pipeline.token_encoder(transcript)
-        text_embeddings = pipeline.model.embed_text(
+        text_embeddings = model.embed_text(
             token_ids.unsqueeze(0).to(pipeline.device), pipeline.dtype
         )
 
         vocab_info = pipeline.tokenizer.vocab_info
-        bos_emb = pipeline.model.embed_text(
+        bos_emb = model.embed_text(
             torch.tensor([[vocab_info.bos_idx]], device=pipeline.device), pipeline.dtype
         )
-        sep_emb = pipeline.model.embed_text(
+        sep_emb = model.embed_text(
             torch.tensor([[vocab_info.size]], device=pipeline.device), pipeline.dtype
         )
-        
+
         lang_emb = torch.zeros(1, 0, audio_features.shape[-1], device=pipeline.device, dtype=pipeline.dtype)
-        if hasattr(pipeline.model, "lang_embeddings"):
-            lid = pipeline.model._lang_id_getter(lang)
-            lang_emb = pipeline.model.lang_embeddings(
+        if hasattr(model, "lang_embeddings"):
+            lid = model._lang_id_getter(lang)
+            lang_emb = model.lang_embeddings(
                 torch.tensor([lid], device=pipeline.device).unsqueeze(0)
             )
 
@@ -346,12 +350,12 @@ def align_llm(
     # 2. Run Decoder with Hook
     _attention_store.clear()
     original_forwards = {}
-    
+
     try:
-        for i, layer in enumerate(pipeline.model.llama_decoder.layers):
+        for i, layer in enumerate(model.llama_decoder.layers):
             original_forwards[i] = layer.self_attn.sdpa.forward
             layer.self_attn.sdpa.forward = types.MethodType(
-                make_patched_sdpa_forward(i, original_forwards[i]), 
+                make_patched_sdpa_forward(i, original_forwards[i]),
                 layer.self_attn.sdpa
             )
 
@@ -359,14 +363,14 @@ def align_llm(
         layout = BatchLayout(
             shape=(B, T_full), seq_lens=[T_full], packed=False, device=full_input.device
         )
-        
-        pipeline.model.llama_decoder(seqs=full_input, seqs_layout=layout, state_bag=None)
-        
+
+        model.llama_decoder(seqs=full_input, seqs_layout=layout, state_bag=None)
+
     except Exception as e:
         print(f"Error running LLM alignment pass: {e}")
         return []
     finally:
-        for i, layer in enumerate(pipeline.model.llama_decoder.layers):
+        for i, layer in enumerate(model.llama_decoder.layers):
             if i in original_forwards:
                 layer.self_attn.sdpa.forward = original_forwards[i]
 
@@ -377,9 +381,9 @@ def align_llm(
     L_audio = audio_features.shape[1]
     L_pre = sep_emb.shape[1] + lang_emb.shape[1] + bos_emb.shape[1]
     L_text = text_embeddings.shape[1]
-    
+
     query_start = L_audio + L_pre
-    
+
     sorted_layers = sorted(_attention_store.weights.keys())
     num_layers = len(sorted_layers)
     start_layer = int(num_layers * 0.4)
@@ -393,19 +397,19 @@ def align_llm(
     avg_attn /= len(selected)
 
     cross_attn = avg_attn[query_start : query_start + L_text, :L_audio].numpy()
-    
+
     aligned_frames = forced_alignment_dtw(cross_attn)
 
     # 4. Decode to Words/Chars (Mode detection logic)
     decoded_tokens = [pipeline.token_decoder(token_ids[i:i+1]) for i in range(len(token_ids))]
-    
+
     mode = detect_alignment_mode(transcript)
     key_name = "word" if mode == "word" else "char"
 
     # Group tokens
     groups = []
-    current_group = []
-    
+    current_group: List[int] = []
+
     if mode == "word":
         # Group subwords into words (SentencePiece logic)
         for i, tk in enumerate(decoded_tokens):
@@ -426,24 +430,24 @@ def align_llm(
 
     results = []
     frame_dur = 0.02 # 20ms
-    
+
     for indices in groups:
         s_idx, e_idx = indices[0], indices[-1]
         s_frame, e_frame = aligned_frames[s_idx], aligned_frames[e_idx]
-        
+
         start = s_frame * frame_dur
         end = e_frame * frame_dur + frame_dur
-        
+
         text_fragment = "".join([decoded_tokens[i] for i in indices])
         if mode == "word":
             text_fragment = text_fragment.replace(" ", "")
-        
+
         if not text_fragment: continue
-        
+
         results.append({
             key_name: text_fragment,
             "start": start,
             "end": end
         })
-        
+
     return results

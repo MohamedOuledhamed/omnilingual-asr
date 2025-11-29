@@ -303,7 +303,7 @@ def align_llm(
         return []
 
     # Narrow type for MyPy
-    model = cast(Wav2Vec2LlamaModel, pipeline.model)
+    model = cast("Wav2Vec2LlamaModel", pipeline.model)
 
     lang = lang if lang else "eng_Latn"
 

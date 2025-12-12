@@ -205,7 +205,6 @@ class MixtureParquetStorage(StorageInterface[MixtureParquetStorageConfig]):
 
     @override
     def create_raw_data_pipeline(self, split: str, gangs: Gangs) -> DataPipelineBuilder:
-
         config = self.config
         schema: LangASRSchema = LangASRSchema()
 
@@ -229,9 +228,9 @@ class MixtureParquetStorage(StorageInterface[MixtureParquetStorageConfig]):
             parquet_path_name=config.parquet_path_name,
         )
 
-        assert (
-            len(split_paths) > 0
-        ), f"No parquet files found for the current split {split}."
+        assert len(split_paths) > 0, (
+            f"No parquet files found for the current split {split}."
+        )
 
         # Get partition weights if training
         if is_train_streaming:
@@ -257,9 +256,7 @@ class MixtureParquetStorage(StorageInterface[MixtureParquetStorageConfig]):
         fragment_streaming_config.fragment_shuffle_window = (
             -1 if is_train_streaming else 0
         )
-        fragment_streaming_config.seed += (
-            gangs.dp.size
-        )  # shifts seed for parallel workers (buggy: constant for all dp, but required for BC)
+        fragment_streaming_config.seed += gangs.dp.size  # shifts seed for parallel workers (buggy: constant for all dp, but required for BC)
 
         fragment_loading_config: FragmentLoadingConfig = self.config.fragment_loading
         fragment_loading_config.columns = schema

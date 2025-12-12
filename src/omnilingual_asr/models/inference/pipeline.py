@@ -142,12 +142,13 @@ def assert_max_length(
     current_sample_rate = audio_data["sample_rate"]
     waveform_len_s = len(waveform) / current_sample_rate
     if waveform_len_s > MAX_ALLOWED_AUDIO_SEC:
-        raise ValueError(f"Audio length {waveform_len_s:.2f}s exceeds max {MAX_ALLOWED_AUDIO_SEC}s. Use chunk_len parameter to process long files.")
+        raise ValueError(
+            f"Audio length {waveform_len_s:.2f}s exceeds max {MAX_ALLOWED_AUDIO_SEC}s. Use chunk_len parameter to process long files."
+        )
     return audio_data
 
 
 class ASRInferencePipeline:
-
     def __init__(
         self,
         model_card: str | None,
@@ -246,7 +247,8 @@ class ASRInferencePipeline:
         text_collate_opts = CollateOptionsOverride("text", pad_value=pad_idx)
 
         self.full_collater = Collater(
-            pad_value=0, overrides=[text_collate_opts]  # Default pad value for audio
+            pad_value=0,
+            overrides=[text_collate_opts],  # Default pad value for audio
         )
         self.collater_audio = Collater(pad_value=0)
         self.collater_text = Collater(pad_value=pad_idx)
@@ -356,9 +358,7 @@ class ASRInferencePipeline:
         return transcriptions
 
     def _build_audio_wavform_pipeline(
-        self,
-        inp_list: AudioInput,
-        check_max_length: bool = True
+        self, inp_list: AudioInput, check_max_length: bool = True
     ) -> DataPipelineBuilder:
         """Process audio inputs using fairseq2.data pipeline similar to ASR task."""
         # Build pipeline based on input type
@@ -567,8 +567,10 @@ class ASRInferencePipeline:
         # This replaces the streaming data pipeline with an eager loading strategy to support chunking/alignment
         for idx, (input_item, input_lang) in enumerate(zip(inp, lang)):
             # Use pipeline builder to decode/resample/norm, but bypass length check
-            p = self._build_audio_wavform_pipeline([input_item], check_max_length=False).and_return()
-            waveform = next(iter(p)) # Tensor[T]
+            p = self._build_audio_wavform_pipeline(
+                [input_item], check_max_length=False
+            ).and_return()
+            waveform = next(iter(p))  # Tensor[T]
 
             duration = waveform.shape[0] / 16000.0
 
@@ -576,7 +578,9 @@ class ASRInferencePipeline:
                 chunks = chunk_waveform(waveform, 16000, chunk_len)
             else:
                 if duration > MAX_ALLOWED_AUDIO_SEC and chunk_len is None:
-                     raise ValueError(f"Audio {idx} duration {duration:.2f}s > {MAX_ALLOWED_AUDIO_SEC}s. Provide chunk_len parameter.")
+                    raise ValueError(
+                        f"Audio {idx} duration {duration:.2f}s > {MAX_ALLOWED_AUDIO_SEC}s. Provide chunk_len parameter."
+                    )
                 chunks = [(waveform, 0.0)]
 
             input_text_parts = []
@@ -609,7 +613,9 @@ class ASRInferencePipeline:
                         elif isinstance(self.model, Wav2Vec2LlamaModel):
                             chunk_ts = align_llm(self, wav_segment, text, input_lang)
                     except Exception as e:
-                        log.warning(f"Alignment failed for chunk {i+j} of input {idx}: {e}")
+                        log.warning(
+                            f"Alignment failed for chunk {i + j} of input {idx}: {e}"
+                        )
                         chunk_ts = []
 
                     for w in chunk_ts:

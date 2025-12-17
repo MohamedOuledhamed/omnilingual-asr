@@ -532,6 +532,7 @@ class ASRInferencePipeline:
                 - List [ str | None ]`: Any combination of missing and available language ids.
             `batch_size`: Number of audio samples to process in each batch (per chunk).
             `chunk_len`: Maximum length in seconds for processing. Longer files will be split.
+                When omitted, long-form audio is automatically chunked to the model limit.
 
         Returns:
             Tuple[List[str], List[List[Dict[str, Any]]]]:
@@ -572,11 +573,15 @@ class ASRInferencePipeline:
 
             duration = waveform.shape[0] / 16000.0
 
-            if chunk_len is not None and duration > chunk_len:
-                chunks = chunk_waveform(waveform, 16000, chunk_len)
+            effective_chunk_len = chunk_len
+            if effective_chunk_len is None and duration > MAX_ALLOWED_AUDIO_SEC:
+                # Automatically chunk long-form audio using the model's maximum window when
+                # the caller has not explicitly requested a different chunk size.
+                effective_chunk_len = MAX_ALLOWED_AUDIO_SEC
+
+            if effective_chunk_len is not None and duration > effective_chunk_len:
+                chunks = chunk_waveform(waveform, 16000, effective_chunk_len)
             else:
-                if duration > MAX_ALLOWED_AUDIO_SEC and chunk_len is None:
-                     raise ValueError(f"Audio {idx} duration {duration:.2f}s > {MAX_ALLOWED_AUDIO_SEC}s. Provide chunk_len parameter.")
                 chunks = [(waveform, 0.0)]
 
             input_text_parts = []

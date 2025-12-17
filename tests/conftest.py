@@ -1,16 +1,8 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the BSD-style license found in the
-# LICENSE file in the root directory of this source tree.
+import sys
+from pathlib import Path
 
-import pytest
-import torch
-
-
-@pytest.fixture
-def device() -> torch.device:
-    """Only loading with CUDA as this takes 20+ minutes on CPU."""
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    pytest.skip("CUDA not available")
+# Ensure the project src directory is on the import path for tests
+ROOT = Path(__file__).resolve().parent.parent
+SRC = ROOT / "src"
+if SRC.exists():
+    sys.path.insert(0, str(SRC))

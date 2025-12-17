@@ -37,6 +37,8 @@ from omnilingual_asr.models.inference.align import (
     align_ctc,
     align_llm,
     chunk_waveform,
+    detect_alignment_mode,
+    split_text_units,
 )
 from omnilingual_asr.models.wav2vec2_llama.beamsearch import (
     Wav2Vec2LlamaBeamSearchSeq2SeqGenerator,
@@ -355,6 +357,35 @@ class ASRInferencePipeline:
             torch.cuda.empty_cache()
         return transcriptions
 
+    def _fallback_timestamps(
+        self, text: str, n_samples: int, sample_rate: int
+    ) -> List[Dict[str, Any]]:
+        """Generate naive timestamps when alignment fails.
+
+        Spreads alignment units evenly across the segment duration so we still
+        return usable timestamps even if the main alignment path cannot be
+        computed.
+        """
+
+        if n_samples <= 0:
+            return []
+
+        duration = n_samples / float(sample_rate)
+        mode = detect_alignment_mode(text)
+        units = split_text_units(text, mode)
+        if not units:
+            return []
+
+        key_name = "word" if mode == "word" else "char"
+        step = duration / len(units)
+        timestamps: List[Dict[str, Any]] = []
+        for idx, (unit, _s, _e) in enumerate(units):
+            start = step * idx
+            end = step * (idx + 1)
+            timestamps.append({key_name: unit, "start": start, "end": end})
+
+        return timestamps
+
     def _build_audio_wavform_pipeline(
         self,
         inp_list: AudioInput,
@@ -399,8 +430,9 @@ class ASRInferencePipeline:
         # Resample
         builder = builder.map(resample_to_16khz, selector="data")
 
-        # Check max allowed length
-        if check_max_length:
+        # Check max allowed length if non-streaming
+        non_streaming = not self.streaming_config.is_streaming
+        if check_max_length and non_streaming:
             builder = builder.map(assert_max_length, selector="data")
 
         # Add waveform processing
@@ -532,6 +564,7 @@ class ASRInferencePipeline:
                 - List [ str | None ]`: Any combination of missing and available language ids.
             `batch_size`: Number of audio samples to process in each batch (per chunk).
             `chunk_len`: Maximum length in seconds for processing. Longer files will be split.
+                When omitted, long-form audio is automatically chunked to the model limit.
 
         Returns:
             Tuple[List[str], List[List[Dict[str, Any]]]]:
@@ -572,11 +605,15 @@ class ASRInferencePipeline:
 
             duration = waveform.shape[0] / 16000.0
 
-            if chunk_len is not None and duration > chunk_len:
-                chunks = chunk_waveform(waveform, 16000, chunk_len)
+            effective_chunk_len = chunk_len
+            if effective_chunk_len is None and duration > MAX_ALLOWED_AUDIO_SEC:
+                # Automatically chunk long-form audio using the model's maximum window when
+                # the caller has not explicitly requested a different chunk size.
+                effective_chunk_len = MAX_ALLOWED_AUDIO_SEC
+
+            if effective_chunk_len is not None and duration > effective_chunk_len:
+                chunks = chunk_waveform(waveform, 16000, effective_chunk_len)
             else:
-                if duration > MAX_ALLOWED_AUDIO_SEC and chunk_len is None:
-                     raise ValueError(f"Audio {idx} duration {duration:.2f}s > {MAX_ALLOWED_AUDIO_SEC}s. Provide chunk_len parameter.")
                 chunks = [(waveform, 0.0)]
 
             input_text_parts = []
@@ -609,8 +646,15 @@ class ASRInferencePipeline:
                         elif isinstance(self.model, Wav2Vec2LlamaModel):
                             chunk_ts = align_llm(self, wav_segment, text, input_lang)
                     except Exception as e:
-                        log.warning(f"Alignment failed for chunk {i+j} of input {idx}: {e}")
+                        log.warning(
+                            f"Alignment failed for chunk {i+j} of input {idx}: {e}"
+                        )
                         chunk_ts = []
+
+                    if not chunk_ts:
+                        chunk_ts = self._fallback_timestamps(
+                            text, wav_segment.shape[0], sample_rate=16000
+                        )
 
                     for w in chunk_ts:
                         w["start"] += offset

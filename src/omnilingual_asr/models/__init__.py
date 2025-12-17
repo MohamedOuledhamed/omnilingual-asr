@@ -4,8 +4,21 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from omnilingual_asr.models import inference as inference
+from __future__ import annotations
 
-__all__ = [
-    "inference",
-]
+import importlib
+from types import ModuleType
+from typing import Any
+
+__all__ = ["inference"]
+
+
+def __getattr__(name: str) -> Any:  # pragma: no cover - simple dispatch
+    if name == "inference":
+        return importlib.import_module("omnilingual_asr.models.inference")
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+# Allow attribute style access for static type checkers
+inference: ModuleType

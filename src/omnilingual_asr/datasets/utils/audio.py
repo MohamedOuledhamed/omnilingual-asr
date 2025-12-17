@@ -8,13 +8,17 @@ from __future__ import annotations
 
 import random
 from functools import partial, reduce
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 import torch
 import torchaudio
-from fairseq2.data.audio import AudioDecoder, WaveformToFbankConverter
-from fairseq2.data.data_pipeline import DataPipelineBuilder
+
+if TYPE_CHECKING:  # pragma: no cover - imports are optional at runtime
+    from fairseq2.data.audio import AudioDecoder, WaveformToFbankConverter
+    from fairseq2.data.data_pipeline import DataPipelineBuilder
+else:
+    DataPipelineBuilder = Any
 from torch import Tensor
 from torch.nn.functional import layer_norm
 
@@ -130,20 +134,24 @@ def postprocess_waveform(
 
 
 def add_audio_decoding(
-    builder: DataPipelineBuilder,
+    builder: "DataPipelineBuilder",
     dtype: torch.dtype,
     normalize_audio: bool,
     selector: str,
     npc: int,
 ) -> DataPipelineBuilder:
+    from fairseq2.data.audio import AudioDecoder
+
     audio_decoder = AudioDecoder(dtype=torch.float32 if normalize_audio else dtype)
     return builder.map(audio_decoder, selector=selector, num_parallel_calls=npc)
 
 
 def add_fbank_processing(
-    builder: DataPipelineBuilder, dtype: torch.dtype, selector: str, npc: int
+    builder: "DataPipelineBuilder", dtype: torch.dtype, selector: str, npc: int
 ) -> DataPipelineBuilder:
     """Add filterbank feature extraction."""
+    from fairseq2.data.audio import WaveformToFbankConverter
+
     fbank_converter = WaveformToFbankConverter(
         num_mel_bins=80,
         waveform_scale=2**15,

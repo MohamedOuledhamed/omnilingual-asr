@@ -453,9 +453,9 @@ class Wav2Vec2LlamaModel(AsrModel):
             lang_id_ = [0] * batch_size
         elif self.lang_embeddings_p > 0.0 and self.language_column_name in example:
             lang_array = example[self.language_column_name]
-            assert (
-                len(lang_array) == batch_size
-            ), f"lang array length {len(lang_array)} != {batch_size} (should be batch size)"
+            assert len(lang_array) == batch_size, (
+                f"lang array length {len(lang_array)} != {batch_size} (should be batch size)"
+            )
             lang_id_ = list(map(self._lang_id_getter, lang_array))
         else:
             raise ValueError("lang not in batch, but lang_embeddings_p > 0.0")
@@ -504,7 +504,9 @@ class Wav2Vec2LlamaModel(AsrModel):
             {
                 "value": {
                     "seqs": self.create_single_char(
-                        batch, self.target_vocab_info.bos_idx, device  # type: ignore
+                        batch,
+                        self.target_vocab_info.bos_idx,
+                        device,  # type: ignore
                     )
                 },
                 "type": "text",
@@ -521,7 +523,9 @@ class Wav2Vec2LlamaModel(AsrModel):
             {
                 "value": {
                     "seqs": self.create_single_char(
-                        batch, self.target_vocab_info.eos_idx, device  # type: ignore
+                        batch,
+                        self.target_vocab_info.eos_idx,
+                        device,  # type: ignore
                     )
                 },
                 "type": "text",
@@ -619,7 +623,9 @@ class Wav2Vec2LlamaModel(AsrModel):
             {
                 "value": {
                     "seqs": self.create_single_char(
-                        batch, self.target_vocab_info.eos_idx, device  # type: ignore
+                        batch,
+                        self.target_vocab_info.eos_idx,
+                        device,  # type: ignore
                     )
                 },
                 "type": "text",
@@ -717,7 +723,9 @@ class Wav2Vec2LlamaModel(AsrModel):
             {
                 "value": {
                     "seqs": self.create_single_char(
-                        batch, self.target_vocab_info.bos_idx, device  # type: ignore
+                        batch,
+                        self.target_vocab_info.bos_idx,
+                        device,  # type: ignore
                     )
                 },
                 "type": "text",
@@ -734,7 +742,9 @@ class Wav2Vec2LlamaModel(AsrModel):
             {
                 "value": {
                     "seqs": self.create_single_char(
-                        batch, self.target_vocab_info.eos_idx, device  # type: ignore
+                        batch,
+                        self.target_vocab_info.eos_idx,
+                        device,  # type: ignore
                     )
                 },
                 "type": "text",
@@ -746,7 +756,9 @@ class Wav2Vec2LlamaModel(AsrModel):
     @staticmethod
     def create_single_char(batch: Seq2SeqBatch, char: int, device: Device) -> Tensor:
         return torch.full_like(
-            batch.target_seqs[:, :1], fill_value=char, device=device  # type: ignore
+            batch.target_seqs[:, :1],
+            fill_value=char,
+            device=device,  # type: ignore
         )
 
     def embed_inputs(
@@ -757,7 +769,8 @@ class Wav2Vec2LlamaModel(AsrModel):
             # Embed the modality
             if inp["type"] == "audio":
                 inp["value"]["seqs"], inp["value"]["seq_lens"] = self.embed_audio(  # type: ignore
-                    seqs=inp["value"]["seqs"], seq_lens=inp["value"]["seq_lens"]  # type: ignore
+                    seqs=inp["value"]["seqs"],
+                    seq_lens=inp["value"]["seq_lens"],  # type: ignore
                 )
             elif inp["type"] == "text":
                 inp["value"]["seqs"] = self.embed_text(inp["value"]["seqs"], dtype)  # type: ignore
@@ -786,7 +799,9 @@ class Wav2Vec2LlamaModel(AsrModel):
             seqs, seqs_layout
         )
         enc_out, _ = self.encoder_frontend.process_features(
-            enc_out, enc_layout, self.masker if self.training else None  # type: ignore
+            enc_out,
+            enc_layout,
+            self.masker if self.training else None,  # type: ignore
         )
         enc_out = self.encoder(enc_out, enc_layout)
 
@@ -820,7 +835,6 @@ class Wav2Vec2LlamaModel(AsrModel):
     def concat_inputs(
         self, inputs: List[Dict[str, object]]
     ) -> Tuple[Tensor, BatchLayout, Tensor, BatchLayout]:
-
         # Get input information
         t = inputs[0]["value"]["seqs"]  # type: ignore
 

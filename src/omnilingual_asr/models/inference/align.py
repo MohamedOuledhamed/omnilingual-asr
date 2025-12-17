@@ -31,9 +31,10 @@ except ImportError:
 # Covers: CJK Unified Ideographs, Hiragana, Katakana, Thai, Lao, Khmer, Myanmar.
 _NON_SPACED_SCRIPTS = re.compile(
     r"[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF"  # CJK + Kana
-    r"\u0E00-\u0E7F\u0E80-\u0EFF"                             # Thai + Lao
-    r"\u1780-\u17FF\u1000-\u109F]"                            # Khmer + Myanmar
+    r"\u0E00-\u0E7F\u0E80-\u0EFF"  # Thai + Lao
+    r"\u1780-\u17FF\u1000-\u109F]"  # Khmer + Myanmar
 )
+
 
 def detect_alignment_mode(text: str) -> str:
     """
@@ -84,6 +85,7 @@ def split_text_units(transcript: str, mode: str) -> List[Tuple[str, int, int]]:
 # CTC ALIGNMENT LOGIC
 # =============================================================================
 
+
 def _make_seqs_layout(x_batched: Tensor, seq_lens: Sequence[int]) -> Any:
     return BatchLayout.of(batch=x_batched, seq_lens=list(seq_lens))
 
@@ -92,7 +94,9 @@ def _ensure_tensor(maybe_ret: Any) -> Tensor:
     return maybe_ret[0] if isinstance(maybe_ret, (tuple, list)) else maybe_ret
 
 
-def get_ctc_logits(asr_model: Any, waveform: Tensor, sample_rate: int) -> Tuple[Tensor, float]:
+def get_ctc_logits(
+    asr_model: Any, waveform: Tensor, sample_rate: int
+) -> Tuple[Tensor, float]:
     device = next(asr_model.parameters()).device
 
     if hasattr(asr_model, "encoder_frontend"):
@@ -200,11 +204,13 @@ def align_ctc(
         start_frame = boundaries[start_bin]
         end_frame = boundaries[end_bin]
 
-        results.append({
-            key_name: tok,
-            "start": start_frame * stride_seconds,
-            "end": end_frame * stride_seconds
-        })
+        results.append(
+            {
+                key_name: tok,
+                "start": start_frame * stride_seconds,
+                "end": end_frame * stride_seconds,
+            }
+        )
 
     return results
 
@@ -212,6 +218,7 @@ def align_ctc(
 # =============================================================================
 # LLM ALIGNMENT LOGIC (DTW)
 # =============================================================================
+
 
 class AttentionStore:
     def __init__(self) -> None:
@@ -223,7 +230,9 @@ class AttentionStore:
     def clear(self) -> None:
         self.weights = {}
 
+
 _attention_store = AttentionStore()
+
 
 def make_patched_sdpa_forward(layer_idx: int, original_forward_func):
     def patched_sdpa_forward(self, *args, **kwargs):
@@ -245,6 +254,7 @@ def make_patched_sdpa_forward(layer_idx: int, original_forward_func):
         except Exception:
             pass
         return context, attn_weights_orig
+
     return patched_sdpa_forward
 
 
@@ -256,18 +266,18 @@ def forced_alignment_dtw(similarity_matrix: np.ndarray) -> List[int]:
 
     for i in range(1, N_text + 1):
         for j in range(1, N_audio + 1):
-            s = similarity_matrix[i-1, j-1]
-            score_diag = score[i-1, j-1]
-            score_left = score[i, j-1]
+            s = similarity_matrix[i - 1, j - 1]
+            score_diag = score[i - 1, j - 1]
+            score_left = score[i, j - 1]
             score[i, j] = max(score_diag, score_left) + s
 
     path = []
     i, j = N_text, int(np.argmax(score[N_text, :]))
 
     while i > 0 and j > 0:
-        path.append((i-1, j-1))
-        s_diag = score[i-1, j-1]
-        s_left = score[i, j-1]
+        path.append((i - 1, j - 1))
+        s_diag = score[i - 1, j - 1]
+        s_left = score[i, j - 1]
         if s_diag >= s_left:
             i, j = i - 1, j - 1
         else:
@@ -296,9 +306,8 @@ def align_llm(
     pipeline: "ASRInferencePipeline",
     waveform: Tensor,
     transcript: str,
-    lang: Optional[str] = None
+    lang: Optional[str] = None,
 ) -> List[dict]:
-
     if not transcript.strip():
         return []
 
@@ -310,10 +319,12 @@ def align_llm(
     # 1. Prepare Inputs
     try:
         if waveform.ndim > 1:
-             waveform = waveform.mean(dim=0)
+            waveform = waveform.mean(dim=0)
 
         audio_data = [{"waveform": waveform, "sample_rate": 16000}]
-        audio_candidate = next(iter(pipeline._build_audio_wavform_pipeline(audio_data).and_return()))
+        audio_candidate = next(
+            iter(pipeline._build_audio_wavform_pipeline(audio_data).and_return())
+        )
         audio_batch = pipeline._create_batch_simple([(audio_candidate, lang)])
 
         audio_features, _ = model.embed_audio(
@@ -334,14 +345,18 @@ def align_llm(
             torch.tensor([[vocab_info.size]], device=pipeline.device), pipeline.dtype
         )
 
-        lang_emb = torch.zeros(1, 0, audio_features.shape[-1], device=pipeline.device, dtype=pipeline.dtype)
+        lang_emb = torch.zeros(
+            1, 0, audio_features.shape[-1], device=pipeline.device, dtype=pipeline.dtype
+        )
         if hasattr(model, "lang_embeddings"):
             lid = model._lang_id_getter(lang)
             lang_emb = model.lang_embeddings(
                 torch.tensor([lid], device=pipeline.device).unsqueeze(0)
             )
 
-        full_input = torch.cat([audio_features, sep_emb, lang_emb, bos_emb, text_embeddings], dim=1)
+        full_input = torch.cat(
+            [audio_features, sep_emb, lang_emb, bos_emb, text_embeddings], dim=1
+        )
 
     except Exception as e:
         print(f"Error preparing LLM alignment inputs: {e}")
@@ -355,8 +370,7 @@ def align_llm(
         for i, layer in enumerate(model.llama_decoder.layers):
             original_forwards[i] = layer.self_attn.sdpa.forward
             layer.self_attn.sdpa.forward = types.MethodType(
-                make_patched_sdpa_forward(i, original_forwards[i]),
-                layer.self_attn.sdpa
+                make_patched_sdpa_forward(i, original_forwards[i]), layer.self_attn.sdpa
             )
 
         B, T_full, _ = full_input.shape
@@ -389,7 +403,8 @@ def align_llm(
     start_layer = int(num_layers * 0.4)
     end_layer = int(num_layers * 0.9)
     selected = [l for l in sorted_layers if start_layer <= l < end_layer]
-    if not selected: selected = sorted_layers
+    if not selected:
+        selected = sorted_layers
 
     avg_attn = torch.zeros_like(_attention_store.weights[selected[0]])
     for l in selected:
@@ -401,7 +416,9 @@ def align_llm(
     aligned_frames = forced_alignment_dtw(cross_attn)
 
     # 4. Decode to Words/Chars (Mode detection logic)
-    decoded_tokens = [pipeline.token_decoder(token_ids[i:i+1]) for i in range(len(token_ids))]
+    decoded_tokens = [
+        pipeline.token_decoder(token_ids[i : i + 1]) for i in range(len(token_ids))
+    ]
 
     mode = detect_alignment_mode(transcript)
     key_name = "word" if mode == "word" else "char"
@@ -417,7 +434,8 @@ def align_llm(
                 groups.append(current_group)
                 current_group = []
             current_group.append(i)
-        if current_group: groups.append(current_group)
+        if current_group:
+            groups.append(current_group)
     else:
         # Char mode: We still have subword tokens. We must map tokens to text characters.
         # This is complex for LLM tokens vs unicode chars.
@@ -429,7 +447,7 @@ def align_llm(
             groups.append([i])
 
     results = []
-    frame_dur = 0.02 # 20ms
+    frame_dur = 0.02  # 20ms
 
     for indices in groups:
         s_idx, e_idx = indices[0], indices[-1]
@@ -442,12 +460,9 @@ def align_llm(
         if mode == "word":
             text_fragment = text_fragment.replace(" ", "")
 
-        if not text_fragment: continue
+        if not text_fragment:
+            continue
 
-        results.append({
-            key_name: text_fragment,
-            "start": start,
-            "end": end
-        })
+        results.append({key_name: text_fragment, "start": start, "end": end})
 
     return results

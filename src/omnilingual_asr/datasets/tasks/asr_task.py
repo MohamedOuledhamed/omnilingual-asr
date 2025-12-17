@@ -156,7 +156,6 @@ class AsrTask(TaskInterface[AsrTaskConfig]):
         tokenizer: Tokenizer,
         dtype: torch.dtype,
     ) -> DataPipelineBuilder:
-
         config = self.config
 
         # Filtering audio to optimize before batching
@@ -246,7 +245,6 @@ class AsrTask(TaskInterface[AsrTaskConfig]):
         text_selector: str,
         audio_length_selector: str,
     ) -> DataPipelineBuilder:
-
         builder = filter_empty_text(builder, text_selector=text_selector)
 
         builder = filter_fast_speech(
@@ -263,7 +261,9 @@ class AsrTask(TaskInterface[AsrTaskConfig]):
         )
 
         builder = filter_unknown_sequences(
-            builder, unk_idx=tokenizer.vocab_info.unk_idx, text_selector=text_selector  # type: ignore
+            builder,
+            unk_idx=tokenizer.vocab_info.unk_idx,
+            text_selector=text_selector,  # type: ignore
         )
 
         if filter_long_text_threshold is not None:
@@ -275,7 +275,8 @@ class AsrTask(TaskInterface[AsrTaskConfig]):
 
         if remove_unknown:
             builder = filter_unknown_tokens(
-                builder, unk_idx=tokenizer.vocab_info.unk_idx  # type: ignore
+                builder,
+                unk_idx=tokenizer.vocab_info.unk_idx,  # type: ignore
             )
         return builder
 
@@ -293,7 +294,6 @@ class AsrTask(TaskInterface[AsrTaskConfig]):
         batch_size: int,
         no_padding: bool,
     ) -> DataPipelineBuilder:
-
         if batching is BatchingStrategy.LENGTH:
             builder = add_length_batching(
                 builder,
@@ -324,9 +324,9 @@ class AsrTask(TaskInterface[AsrTaskConfig]):
         builder: DataPipelineBuilder, example_shuffle_window: int, seed: int
     ) -> DataPipelineBuilder:
         """Shuffles samples (pre-batching operation)."""
-        assert (
-            example_shuffle_window > 0
-        ), "Shuffling the entire dataset can result in OOM, set `example_shuffle_window` > 0 to shuffle inside a window."
+        assert example_shuffle_window > 0, (
+            "Shuffling the entire dataset can result in OOM, set `example_shuffle_window` > 0 to shuffle inside a window."
+        )
 
         if example_shuffle_window != 1:
             builder.shuffle(example_shuffle_window, seed)
@@ -337,9 +337,9 @@ class AsrTask(TaskInterface[AsrTaskConfig]):
         builder: DataPipelineBuilder, batch_shuffle_window: int, seed: int
     ) -> DataPipelineBuilder:
         """Shuffles batches, not samples (post-batching operation)."""
-        assert (
-            batch_shuffle_window > 0
-        ), "Shuffling the entire dataset can result in OOM, set `batch_shuffle_window` > 0 to shuffle inside a window."
+        assert batch_shuffle_window > 0, (
+            "Shuffling the entire dataset can result in OOM, set `batch_shuffle_window` > 0 to shuffle inside a window."
+        )
 
         if batch_shuffle_window != 1:
             builder.shuffle(batch_shuffle_window, seed)
@@ -358,7 +358,6 @@ class AsrTask(TaskInterface[AsrTaskConfig]):
         npc: int,
         unified_audio_feature_keys: bool,
     ) -> DataPipelineBuilder:
-
         builder = add_audio_decoding(
             builder,
             dtype=dtype,
@@ -412,7 +411,6 @@ class AsrTask(TaskInterface[AsrTaskConfig]):
         num_prefetch: int,
         no_padding: bool,
     ) -> DataPipelineBuilder:
-
         if no_padding:
             log.warning(
                 "Collating without padding is currently not supported, defaulting to padding."

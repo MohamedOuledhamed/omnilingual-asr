@@ -151,25 +151,25 @@ class DataLoaderExample:
                 decoded_text = tokenizer.create_decoder()(first_target)
                 print(f"  💬 Sample text: '{decoded_text}'")
 
-                assert (
-                    hasattr(batch, "example") and batch.example
-                ), "Batch must have 'example' attribute with metadata"
+                assert hasattr(batch, "example") and batch.example, (
+                    "Batch must have 'example' attribute with metadata"
+                )
 
                 assert isinstance(batch.example, dict), "Batch example must be a dict"
-                assert (
-                    "lang" in batch.example
-                ), "Batch example must contain 'lang' field"
-                assert (
-                    "corpus" in batch.example
-                ), "Batch example must contain 'corpus' field"
+                assert "lang" in batch.example, (
+                    "Batch example must contain 'lang' field"
+                )
+                assert "corpus" in batch.example, (
+                    "Batch example must contain 'corpus' field"
+                )
 
                 languages = batch.example["lang"]
                 corpora = batch.example["corpus"]
 
                 # Assert that we have the same number of languages and corpora
-                assert len(languages) == len(
-                    corpora
-                ), f"Mismatch between number of languages ({len(languages)}) and corpora ({len(corpora)})"
+                assert len(languages) == len(corpora), (
+                    f"Mismatch between number of languages ({len(languages)}) and corpora ({len(corpora)})"
+                )
 
                 # Count (corpus, language) tuples
                 for corpus, language in zip(corpora, languages):

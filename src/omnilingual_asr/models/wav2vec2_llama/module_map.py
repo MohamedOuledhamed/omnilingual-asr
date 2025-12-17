@@ -4,7 +4,6 @@ import importlib
 from typing import Any
 
 __all__ = [
-    "apply_fsdp_to_wav2vec2_llama",
     "Wav2Vec2LlamaBeamSearchSeq2SeqGenerator",
     "WAV2VEC2_LLAMA_FAMILY",
     "Wav2Vec2LlamaBeamSearchConfig",
@@ -52,10 +51,6 @@ def __getattr__(name: str) -> Any:  # pragma: no cover - simple dispatch
 
     if name in {"Wav2Vec2LlamaModel"}:
         module = _load_module("model")
-        return getattr(module, name)
-
-    if name in {"apply_fsdp_to_wav2vec2_llama"}:
-        module = _load_module("fsdp")
         return getattr(module, name)
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.2.0"
+__version__ = "0.1.0"
 
 
 def setup_fairseq2_extension(container) -> None:
@@ -19,7 +19,6 @@ def setup_fairseq2_extension(container) -> None:
         register_omnilingual_asr_wav2vec2_asr_configs,
     )
     from omnilingual_asr.models.wav2vec2_llama import (
-        apply_fsdp_to_wav2vec2_llama,
         WAV2VEC2_LLAMA_FAMILY,
         Wav2Vec2LlamaConfig,
         Wav2Vec2LlamaModel,
@@ -56,13 +55,13 @@ def _register_models(
     container,
     register_model_family,
     wav2vec2_llama_family,
-        wav2vec2_llama_model,
-        wav2vec2_llama_config,
-        create_wav2vec2_llama_model,
-        convert_wav2vec2_llama_state_dict,
-        register_wav2vec2_llama_configs,
-        register_omnilingual_asr_wav2vec2_ssl_configs,
-        register_omnilingual_asr_wav2vec2_asr_configs,
+    wav2vec2_llama_model,
+    wav2vec2_llama_config,
+    create_wav2vec2_llama_model,
+    convert_wav2vec2_llama_state_dict,
+    register_wav2vec2_llama_configs,
+    register_omnilingual_asr_wav2vec2_ssl_configs,
+    register_omnilingual_asr_wav2vec2_asr_configs,
 ) -> None:
     register_omnilingual_asr_wav2vec2_ssl_configs(container)
     register_omnilingual_asr_wav2vec2_asr_configs(container)

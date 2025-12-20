@@ -461,7 +461,7 @@ class ASRInferencePipeline:
 
         # Check max allowed length if non-streaming
         non_streaming = not self.streaming_config.is_streaming
-        if non_streaming:
+        if non_streaming and check_max_length:
             builder = builder.map(assert_max_length, selector="data")
 
         # Add waveform processing
@@ -629,8 +629,9 @@ class ASRInferencePipeline:
         # This replaces the streaming data pipeline with an eager loading strategy to support chunking/alignment
         for idx, (input_item, input_lang) in enumerate(zip(inp, lang)):
             # Use pipeline builder to decode/resample/norm, but bypass length check
+            single_input: AudioInput = cast(AudioInput, [input_item])
             p = self._build_audio_wavform_pipeline(
-                [input_item], check_max_length=False
+                single_input, check_max_length=False
             ).and_return()
             waveform = next(iter(p))  # Tensor[T]
 

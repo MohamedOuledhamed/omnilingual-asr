@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 import types
-from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, cast
 
 import numpy as np
 import torch
@@ -19,6 +19,7 @@ from torch import Tensor
 try:
     from omnilingual_asr.models.inference.pipeline import ASRInferencePipeline
     from omnilingual_asr.models.wav2vec2_llama.model import Wav2Vec2LlamaModel
+    from omnilingual_asr.models.wav2vec2_llama.syntax import lang_id_getter
 except ImportError:
     pass  # Type checking only
 
@@ -327,9 +328,15 @@ def align_llm(
         )
         audio_batch = pipeline._create_batch_simple([(audio_candidate, lang)])
 
+        source_seq_lens = audio_batch.source_seq_lens
+        if isinstance(source_seq_lens, torch.Tensor):
+            seq_lens_list: List[int] = source_seq_lens.tolist()
+        else:
+            seq_lens_list = list(source_seq_lens)
+
         audio_features, _ = model.embed_audio(
             audio_batch.source_seqs.to(dtype=pipeline.dtype),
-            audio_batch.source_seq_lens,
+            seq_lens_list,
         )
 
         token_ids = pipeline.token_encoder(transcript)
@@ -348,8 +355,9 @@ def align_llm(
         lang_emb = torch.zeros(
             1, 0, audio_features.shape[-1], device=pipeline.device, dtype=pipeline.dtype
         )
-        if hasattr(model, "lang_embeddings"):
-            lid = model._lang_id_getter(lang)
+        lang_mapping = getattr(model, "lang_mapping", None)
+        if model.lang_embeddings is not None and lang_mapping is not None:
+            lid = lang_id_getter(lang_mapping, lang)
             lang_emb = model.lang_embeddings(
                 torch.tensor([lid], device=pipeline.device).unsqueeze(0)
             )
@@ -364,14 +372,21 @@ def align_llm(
 
     # 2. Run Decoder with Hook
     _attention_store.clear()
-    original_forwards = {}
+    original_forwards: Dict[int, Callable[..., Any]] = {}
+    patched_layers: List[int] = []
 
     try:
         for i, layer in enumerate(model.llama_decoder.layers):
-            original_forwards[i] = layer.self_attn.sdpa.forward
-            layer.self_attn.sdpa.forward = types.MethodType(
-                make_patched_sdpa_forward(i, original_forwards[i]), layer.self_attn.sdpa
+            sdpa = getattr(layer.self_attn, "sdpa", None)
+            sdpa_forward = getattr(sdpa, "forward", None)
+            if sdpa is None or sdpa_forward is None:
+                continue
+
+            original_forwards[i] = cast(Callable[..., Any], sdpa_forward)
+            sdpa.forward = types.MethodType(
+                make_patched_sdpa_forward(i, original_forwards[i]), sdpa
             )
+            patched_layers.append(i)
 
         B, T_full, _ = full_input.shape
         layout = BatchLayout(
@@ -384,9 +399,11 @@ def align_llm(
         print(f"Error running LLM alignment pass: {e}")
         return []
     finally:
-        for i, layer in enumerate(model.llama_decoder.layers):
-            if i in original_forwards:
-                layer.self_attn.sdpa.forward = original_forwards[i]
+        for i in patched_layers:
+            layer = model.llama_decoder.layers[i]
+            sdpa = getattr(layer.self_attn, "sdpa", None)
+            if sdpa is not None and i in original_forwards:
+                sdpa.forward = original_forwards[i]
 
     if not _attention_store.weights:
         return []

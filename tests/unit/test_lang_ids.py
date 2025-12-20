@@ -10,9 +10,9 @@ from omnilingual_asr.models.wav2vec2_llama.lang_ids import supported_langs
 def test_supported_langs():
     assert isinstance(supported_langs, list), "supported_langs should be a list"
     assert len(supported_langs) > 0, "supported_langs should not be empty"
-    assert len(supported_langs) >= 1600, (
-        f"Expected at least 1600 languages, got {len(supported_langs)}"
-    )
+    assert (
+        len(supported_langs) >= 1600
+    ), f"Expected at least 1600 languages, got {len(supported_langs)}"
 
     for lang in supported_langs:
         assert isinstance(lang, str), f"Language code {lang} is not a string"
@@ -23,9 +23,9 @@ def test_supported_langs():
             3,
         ], f"Language code {lang} should have exactly one underscore"
         assert parts[0].islower(), f"Language code {parts[0]} should be lowercase"
-        assert parts[1][0].isupper(), (
-            f"Script code {parts[1]} should start with uppercase"
-        )
+        assert parts[1][
+            0
+        ].isupper(), f"Script code {parts[1]} should start with uppercase"
 
     expected_languages = [
         "eng_Latn",
@@ -45,6 +45,6 @@ def test_supported_langs():
     unique_langs = set(supported_langs)
     assert len(unique_langs) == len(supported_langs), "Duplicate language codes found"
 
-    assert supported_langs == sorted(supported_langs), (
-        "Language codes should be sorted alphabetically"
-    )
+    assert supported_langs == sorted(
+        supported_langs
+    ), "Language codes should be sorted alphabetically"
